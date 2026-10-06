@@ -3,6 +3,11 @@
 -- schema.sql — table definitions matching the ERD in
 -- DMD_Research_Design_Draft.docx (Figure 1)
 --
+-- v3.3: adds shared reviewers and nullable reviewer_id foreign keys in
+-- both review tables. Load reviewers before the review CSVs.
+-- Existing databases: use migrations/001_add_reviewers.sql instead of
+-- running this full rebuild script.
+--
 -- v3.2: resolves the two "decision needed" items v3.1 had left open.
 -- (1) possessive_pronoun_pct renamed to personal_pronoun_pct (mapped to
 -- LIWC's 'ppron'). Checked directly against the LIWC2015 Development
@@ -62,6 +67,7 @@ DROP TABLE IF EXISTS studios;
 DROP TABLE IF EXISTS genres;
 DROP TABLE IF EXISTS consumer_reviews;
 DROP TABLE IF EXISTS expert_reviews;
+DROP TABLE IF EXISTS reviewers;
 DROP TABLE IF EXISTS movies;
 
 -- ---------------------------------------------------------------------
@@ -178,6 +184,18 @@ CREATE TABLE movie_studios (
 -- tentative_pct are ordinary LIWC category scores, in percent of words,
 -- like positive_emotion_pct and negative_emotion_pct already here.
 -- ---------------------------------------------------------------------
+-- Reviewer names identify source accounts, not verified real people.
+-- Keep consumer and expert identities separate even when names agree.
+-- Unknown authors use NULL reviewer_id in their review rows.
+-- Adapted with Codex assistance; student contributor: [add your name].
+CREATE TABLE reviewers (
+    reviewer_id    SERIAL PRIMARY KEY,
+    reviewer_name  TEXT NOT NULL CHECK (BTRIM(reviewer_name) <> ''),
+    reviewer_type  VARCHAR(10) NOT NULL
+        CHECK (reviewer_type IN ('consumer', 'expert')),
+    UNIQUE (reviewer_name, reviewer_type)
+);
+
 CREATE TABLE consumer_reviews (
     review_id               SERIAL PRIMARY KEY,
     movie_id                INT NOT NULL REFERENCES movies(movie_id),
@@ -196,7 +214,8 @@ CREATE TABLE consumer_reviews (
     authentic                            NUMERIC(5, 2),
     tone                                  NUMERIC(5, 2),
     certain_pct                            NUMERIC(5, 2),
-    tentative_pct                           NUMERIC(5, 2)
+    tentative_pct                           NUMERIC(5, 2),
+    reviewer_id INT REFERENCES reviewers(reviewer_id)
 );
 
 -- ---------------------------------------------------------------------
@@ -219,13 +238,16 @@ CREATE TABLE expert_reviews (
     authentic                            NUMERIC(5, 2),
     tone                                  NUMERIC(5, 2),
     certain_pct                            NUMERIC(5, 2),
-    tentative_pct                           NUMERIC(5, 2)
+    tentative_pct                           NUMERIC(5, 2),
+    reviewer_id INT REFERENCES reviewers(reviewer_id)
 );
 
 -- Indexes on the foreign keys: every query joining reviews, genres,
 -- credits or studios back to movies filters or joins on these columns.
 CREATE INDEX idx_consumer_reviews_movie_id ON consumer_reviews(movie_id);
 CREATE INDEX idx_expert_reviews_movie_id ON expert_reviews(movie_id);
+CREATE INDEX idx_consumer_reviews_reviewer_id ON consumer_reviews(reviewer_id);
+CREATE INDEX idx_expert_reviews_reviewer_id ON expert_reviews(reviewer_id);
 CREATE INDEX idx_movie_genres_movie_id ON movie_genres(movie_id);
 CREATE INDEX idx_movie_genres_genre_id ON movie_genres(genre_id);
 CREATE INDEX idx_movie_credits_movie_id ON movie_credits(movie_id);
@@ -233,10 +255,13 @@ CREATE INDEX idx_movie_credits_person_id ON movie_credits(person_id);
 CREATE INDEX idx_movie_studios_movie_id ON movie_studios(movie_id);
 CREATE INDEX idx_movie_studios_studio_id ON movie_studios(studio_id);
 
--- Next step: load the CSVs into these nine tables (pgAdmin's
+-- Next step: load the CSVs into these ten tables (pgAdmin's
 -- Import/Export tool, or \copy in psql). MetaClean + sales data merge
 -- into movies; consumer review data loads into consumer_reviews;
--- expert critics data loads into expert_reviews. genres, movie_genres,
+-- expert critics data loads into expert_reviews. Load reviewers.csv before
+-- either review table; both review CSVs must use the SAME reviewer ID mapping.
+-- See reviewers_import_contract.md for the CSV contract and migration workflow.
+-- genres, movie_genres,
 -- people, movie_credits, studios and movie_studios are not provided as
 -- separate source files — split them out of MetaClean's genre, cast,
 -- director and studio columns before import (see README.md for the
